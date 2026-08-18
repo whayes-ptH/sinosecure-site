@@ -1,0 +1,4 @@
+import type { Metadata } from "next";
+import { ContactForm } from "@/components/ContactForm";
+export const metadata: Metadata = { title: "Underwriting Enquiry", description: "Contact Sino Secure about marine, financial guarantee, indemnity, liability and specialty risks." };
+export default function ContactPage(){return <section className="page-hero"><div className="container contact-layout"><div><p className="eyebrow">Underwriting enquiry</p><h1>Give us the risk in context.</h1><p className="lead">Share the exposure, territories and timing. We will respond with the right next questions.</p><div className="contact-details"><p><strong>Australia office</strong><br />Suite 7, 334 Highbury Road<br />Mount Waverley VIC 3149</p><p><strong>Office hours</strong><br />Monday–Friday<br />9:00–17:00 AEST</p></div></div><ContactForm /></div></section>}
