@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CopyButton } from "./CopyButton";
-import { call, formatDate, patch, post, type DeskUser, type TeamMember } from "./deskApi";
+import {
+  call,
+  formatDate,
+  patch,
+  post,
+  type DeskUser,
+  type NotificationConfiguration,
+  type TeamMember,
+} from "./deskApi";
 
 type Handover = { name: string; email: string; password: string };
 
@@ -11,7 +19,15 @@ type Handover = { name: string; email: string; password: string };
  * so proposals can be traced to the person who sent them and access can be withdrawn
  * without changing anything the rest of the team relies on.
  */
-export function TeamView({ user, onError }: { user: DeskUser; onError: (message: string | null) => void }) {
+export function TeamView({
+  user,
+  notifications,
+  onError,
+}: {
+  user: DeskUser;
+  notifications: NotificationConfiguration | null;
+  onError: (message: string | null) => void;
+}) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [handover, setHandover] = useState<Handover | null>(null);
   const [adding, setAdding] = useState(false);
@@ -64,6 +80,29 @@ export function TeamView({ user, onError }: { user: DeskUser; onError: (message:
 
   return (
     <>
+      <section className="desk-form" aria-labelledby="notification-routing-title">
+        <p className="eyebrow">Email routing</p>
+        <h2 id="notification-routing-title" className="settings-title">Underwriting notifications</h2>
+        <dl className="settings-grid">
+          <div>
+            <dt>Application recipient</dt>
+            <dd>{notifications?.recipient ?? "Not configured"}</dd>
+          </div>
+          <div>
+            <dt>Direct delivery</dt>
+            <dd>{notifications?.directEmailReady ? "Ready" : "Not configured"}</dd>
+          </div>
+          <div>
+            <dt>Netlify Forms archive</dt>
+            <dd>{notifications?.formsArchiveEnabled ? "Enabled" : "Unknown"}</dd>
+          </div>
+        </dl>
+        <p className="form-note">
+          The application recipient comes from UNDERWRITING_NOTIFY_EMAIL. Any additional notification address set in
+          Netlify Forms is controlled in the Netlify dashboard and cannot be read from this repository.
+        </p>
+      </section>
+
       {handover ? (
         <div className="credentials">
           <p className="eyebrow">One-time password for {handover.name}</p>
@@ -105,7 +144,8 @@ export function TeamView({ user, onError }: { user: DeskUser; onError: (message:
             Role
             <select name="role" defaultValue="staff">
               <option value="staff">Staff — sends proposals and reviews documents</option>
-              <option value="admin">Administrator — also manages the team</option>
+              <option value="admin">Administrator — manages underwriting matters</option>
+              <option value="super_admin">Super administrator — also manages users and settings</option>
             </select>
           </label>
           <button className="button" type="submit" disabled={busy}>
@@ -132,7 +172,19 @@ export function TeamView({ user, onError }: { user: DeskUser; onError: (message:
                 <small>{member.email}</small>
               </td>
               <td>
-                <span className={`status-pill role-${member.role}`}>{member.role}</span>
+                {member.id === user.id ? (
+                  <span className={`status-pill role-${member.role}`}>{member.role.replace("_", " ")}</span>
+                ) : (
+                  <select
+                    value={member.role}
+                    aria-label={`Role for ${member.name}`}
+                    onChange={(event) => void update(member, { role: event.target.value })}
+                  >
+                    <option value="staff">staff</option>
+                    <option value="admin">administrator</option>
+                    <option value="super_admin">super administrator</option>
+                  </select>
+                )}
               </td>
               <td>
                 {member.status === "active" ? "active" : "disabled"}
@@ -140,23 +192,16 @@ export function TeamView({ user, onError }: { user: DeskUser; onError: (message:
               </td>
               <td>{formatDate(member.lastLoginAt)}</td>
               <td className="row-actions">
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => void update(member, { resetPassword: true })}
-                >
-                  Reset password
-                </button>
-                {/* Your own role and access are left alone: change them from another
-                    administrator's account, so nobody locks themselves out mid-session. */}
+                {/* Your own credentials, role and access are handled outside this table
+                    so nobody locks the active super administrator out mid-session. */}
                 {member.id === user.id ? null : (
                   <>
                     <button
                       className="ghost-button"
                       type="button"
-                      onClick={() => void update(member, { role: member.role === "admin" ? "staff" : "admin" })}
+                      onClick={() => void update(member, { resetPassword: true })}
                     >
-                      Make {member.role === "admin" ? "staff" : "admin"}
+                      Reset password
                     </button>
                     <button
                       className="ghost-button"
@@ -173,7 +218,9 @@ export function TeamView({ user, onError }: { user: DeskUser; onError: (message:
         </tbody>
       </table>
       <p className="form-note">
-        Disabling an account signs it out everywhere immediately. Matters it opened, and the audit trail, are kept.
+        Only a super administrator can add or change users. Disabling an account signs it out everywhere immediately;
+        its matters and audit trail are retained. Every active console user can create a customer token or send a
+        proposal from the Send proposal screen.
       </p>
     </>
   );

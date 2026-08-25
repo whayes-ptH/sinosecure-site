@@ -1,4 +1,5 @@
 import { formatAccessCode, siteOrigin } from "./underwriting.js";
+import { proposalMailerConfigured, sendTextEmail } from "./email.js";
 
 export type ProposalInput = {
   reference: string;
@@ -40,10 +41,10 @@ export function invitationText(reference: string, accessCode: string, uploadLink
   ].join("\n");
 }
 
-export function proposalSubject(reference: string, organisation?: string | null): string {
+export function proposalSubject(reference: string, organisation: string | null, projectName: string): string {
   return organisation
-    ? `Sino Secure — ${organisation} — underwriting submission ${reference}`
-    : `Sino Secure — underwriting submission ${reference}`;
+    ? `Sino Secure — ${organisation} — ${projectName} — ${reference}`
+    : `Sino Secure — ${projectName} — ${reference}`;
 }
 
 /** Assembles the whole email so the underwriter has nothing left to write. */
@@ -75,7 +76,7 @@ export function mailtoLink(email: ProposalEmail): string {
 }
 
 export function mailerConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.PROPOSAL_FROM_EMAIL);
+  return proposalMailerConfigured();
 }
 
 export type DeliveryResult = { delivered: boolean; note: string };
@@ -86,33 +87,19 @@ export type DeliveryResult = { delivered: boolean; note: string };
  * better default anyway: the proposal then leaves the underwriter's own mailbox.
  */
 export async function deliverProposal(email: ProposalEmail): Promise<DeliveryResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.PROPOSAL_FROM_EMAIL;
-  if (!apiKey || !from) {
+  if (!mailerConfigured()) {
     return { delivered: false, note: "Opened in your mail client — review and send." };
   }
 
-  try {
-    const bcc = process.env.PROPOSAL_BCC_EMAIL;
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        from,
-        to: [email.to],
-        reply_to: email.replyTo,
-        subject: email.subject,
-        text: email.body,
-        ...(bcc ? { bcc: [bcc] } : {}),
-      }),
-    });
-    if (!response.ok) {
-      console.error("proposal delivery rejected", response.status);
-      return { delivered: false, note: "The mail service refused the message — a draft has been opened instead." };
-    }
+  const delivered = await sendTextEmail({
+    to: email.to,
+    replyTo: email.replyTo,
+    subject: email.subject,
+    text: email.body,
+    bcc: process.env.PROPOSAL_BCC_EMAIL,
+  });
+  if (delivered) {
     return { delivered: true, note: `Sent to ${email.to}.` };
-  } catch (error) {
-    console.error("proposal delivery failed", error);
-    return { delivered: false, note: "The mail service could not be reached — a draft has been opened instead." };
   }
+  return { delivered: false, note: "The mail service could not deliver the message — a draft has been opened instead." };
 }

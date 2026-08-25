@@ -1,5 +1,6 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { getStore } from "@netlify/blobs";
+import { notificationConfiguration, sendTextEmail } from "./email.js";
 
 /** Crockford base32 — no I, L, O or U, so codes survive being read down a phone line. */
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -147,7 +148,7 @@ export function failure(message: string, status = 400, extra: Record<string, unk
 /**
  * Constant-time comparison of the bootstrap key so the check leaks no timing signal.
  * This key is no longer a day-to-day credential: it exists only to create the first
- * administrator account, after which staff sign in with their own email and password.
+ * super-administrator account, after which staff sign in with their own email and password.
  */
 export function matchesAdminKey(supplied: unknown): boolean {
   const expected = process.env.UNDERWRITING_ADMIN_KEY;
@@ -187,8 +188,27 @@ async function submitForm(formName: string, fields: Record<string, string>): Pro
   }
 }
 
-export function notifyDesk(fields: Record<string, string>): Promise<void> {
-  return submitForm("sino-document-activity", fields);
+export async function notifyDesk(fields: Record<string, string>): Promise<void> {
+  const config = notificationConfiguration();
+  const form = submitForm("sino-document-activity", fields);
+  const direct = config.directEmailReady && config.recipient
+    ? sendTextEmail({
+        to: config.recipient,
+        subject: `Sino Secure — ${fields.event ?? "underwriting activity"}${fields.reference ? ` — ${fields.reference}` : ""}`,
+        text: [
+          fields.event ? `Event: ${fields.event}` : null,
+          fields.reference ? `Reference: ${fields.reference}` : null,
+          fields.organisation ? `Organisation: ${fields.organisation}` : null,
+          fields.contact ? `Contact: ${fields.contact}` : null,
+          fields.detail ? `Detail: ${fields.detail}` : null,
+          "",
+          `Open the underwriting console: ${siteOrigin()}/underwriting-desk`,
+        ].filter((line): line is string => line !== null).join("\n"),
+      })
+    : Promise.resolve(false);
+
+  // Both are best effort. The database audit trail remains the record of truth.
+  await Promise.allSettled([form, direct]);
 }
 
 export function expiryFromNow(days: number): Date {

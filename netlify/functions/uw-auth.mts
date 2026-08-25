@@ -4,7 +4,7 @@ import { db } from "../../db/index.js";
 import { underwritingUsers } from "../../db/schema.js";
 import {
   USER_ROLES,
-  activeAdminCount,
+  activeSuperAdminCount,
   authenticate,
   clearedSessionCookie,
   endAllSessions,
@@ -20,6 +20,7 @@ import {
   startSession,
   temporaryPassword,
   unauthorised,
+  userRole,
   userCount,
   verifyPassword,
   type DeskUser,
@@ -35,6 +36,7 @@ import {
 } from "../../lib/underwriting.js";
 import { logEvent } from "../../lib/portal.js";
 import { mailerConfigured } from "../../lib/proposal.js";
+import { notificationConfiguration } from "../../lib/email.js";
 
 function withCookie(response: Response, cookie: string): Response {
   const headers = new Headers(response.headers);
@@ -50,7 +52,13 @@ function publicUser(user: DeskUser) {
 async function status(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (user) {
-    return json({ ok: true, authenticated: true, user: publicUser(user), mailerConfigured: mailerConfigured() });
+    return json({
+      ok: true,
+      authenticated: true,
+      user: publicUser(user),
+      mailerConfigured: mailerConfigured(),
+      notifications: user.role === "super_admin" ? notificationConfiguration() : undefined,
+    });
   }
   return json({
     ok: true,
@@ -61,13 +69,13 @@ async function status(req: Request): Promise<Response> {
 }
 
 /**
- * One-time creation of the first administrator. Allowed only while no account exists,
+ * One-time creation of the first super administrator. Allowed only while no account exists,
  * and only against UNDERWRITING_ADMIN_KEY — after this the key is never asked for again.
  */
 async function setup(req: Request): Promise<Response> {
   if (!adminKeyConfigured()) {
     return failure(
-      "Set UNDERWRITING_ADMIN_KEY in the Netlify environment (at least 16 characters), redeploy, then create the first administrator here.",
+      "Set UNDERWRITING_ADMIN_KEY in the Netlify environment (at least 16 characters), redeploy, then create the first super administrator here.",
       503,
       { bootstrapReady: false },
     );
@@ -90,16 +98,17 @@ async function setup(req: Request): Promise<Response> {
   const { passwordHash, passwordSalt } = await hashPassword(body!.password as string);
   const [created] = await db
     .insert(underwritingUsers)
-    .values({ email, name, role: "admin", passwordHash, passwordSalt, lastLoginAt: new Date() })
+    .values({ email, name, role: "super_admin", passwordHash, passwordSalt, lastLoginAt: new Date() })
     .returning({ id: underwritingUsers.id, email: underwritingUsers.email, name: underwritingUsers.name });
 
-  await logEvent({ type: "auth.setup", actor: created.email, detail: "first administrator created", ipHash: hashIp(clientIp(req)) });
+  await logEvent({ type: "auth.setup", actor: created.email, detail: "first super administrator created", ipHash: hashIp(clientIp(req)) });
   const token = await startSession(created.id, req);
   return withCookie(
     json({
       ok: true,
-      user: { id: created.id, email: created.email, name: created.name, role: "admin", mustChangePassword: false },
+      user: { id: created.id, email: created.email, name: created.name, role: "super_admin", mustChangePassword: false },
       mailerConfigured: mailerConfigured(),
+      notifications: notificationConfiguration(),
     }),
     sessionCookie(token),
   );
@@ -146,10 +155,11 @@ async function login(req: Request): Promise<Response> {
         id: account.id,
         email: account.email,
         name: account.name,
-        role: account.role === "admin" ? "admin" : "staff",
+        role: userRole(account.role),
         mustChangePassword: account.mustChangePassword,
       },
       mailerConfigured: mailerConfigured(),
+      notifications: userRole(account.role) === "super_admin" ? notificationConfiguration() : undefined,
     }),
     sessionCookie(token),
   );
@@ -208,8 +218,8 @@ async function listUsers(): Promise<Response> {
   });
 }
 
-/** Creates a colleague with a one-off password shown to the administrator once. */
-async function createUser(req: Request, admin: DeskUser): Promise<Response> {
+/** Creates a colleague with a one-off password shown to the super administrator once. */
+async function createUser(req: Request, superAdmin: DeskUser): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const email = normaliseEmail(body?.email);
   const name = clampText(body?.name, 120);
@@ -236,7 +246,7 @@ async function createUser(req: Request, admin: DeskUser): Promise<Response> {
       createdAt: underwritingUsers.createdAt,
     });
 
-  await logEvent({ type: "auth.user_created", actor: admin.email, detail: created.email, ipHash: hashIp(clientIp(req)) });
+  await logEvent({ type: "auth.user_created", actor: superAdmin.email, detail: created.email, ipHash: hashIp(clientIp(req)) });
   return json({
     ok: true,
     user: { ...created, createdAt: created.createdAt.toISOString(), lastLoginAt: null },
@@ -244,8 +254,8 @@ async function createUser(req: Request, admin: DeskUser): Promise<Response> {
   });
 }
 
-/** Role, access and password resets. Guarded so the last administrator cannot be locked out. */
-async function updateUser(req: Request, admin: DeskUser, userId: number): Promise<Response> {
+/** Role, access and password resets. Guarded so the last super administrator cannot be locked out. */
+async function updateUser(req: Request, superAdmin: DeskUser, userId: number): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const [account] = await db.select().from(underwritingUsers).where(eq(underwritingUsers.id, userId)).limit(1);
   if (!account) return failure("Unknown account.", 404);
@@ -253,6 +263,9 @@ async function updateUser(req: Request, admin: DeskUser, userId: number): Promis
   const ipHash = hashIp(clientIp(req));
 
   if (body?.resetPassword === true) {
+    if (account.id === superAdmin.id) {
+      return failure("Change your own password from Account rather than resetting it here.", 409);
+    }
     const password = temporaryPassword();
     const { passwordHash, passwordSalt } = await hashPassword(password);
     await db
@@ -260,7 +273,7 @@ async function updateUser(req: Request, admin: DeskUser, userId: number): Promis
       .set({ passwordHash, passwordSalt, mustChangePassword: true, updatedAt: new Date() })
       .where(eq(underwritingUsers.id, userId));
     await endAllSessions(userId);
-    await logEvent({ type: "auth.password_reset", actor: admin.email, detail: account.email, ipHash });
+    await logEvent({ type: "auth.password_reset", actor: superAdmin.email, detail: account.email, ipHash });
     return json({ ok: true, temporaryPassword: password, user: { id: userId, mustChangePassword: true } });
   }
 
@@ -269,15 +282,15 @@ async function updateUser(req: Request, admin: DeskUser, userId: number): Promis
   const state = clampText(body?.status, 10);
 
   if (role && (USER_ROLES as readonly string[]).includes(role) && role !== account.role) {
-    if (account.role === "admin" && role !== "admin" && (await activeAdminCount(userId)) === 0) {
-      return failure("There has to be at least one active administrator.", 409);
+    if (account.role === "super_admin" && role !== "super_admin" && (await activeSuperAdminCount(userId)) === 0) {
+      return failure("There has to be at least one active super administrator.", 409);
     }
     patch.role = role;
   }
   if (state && (state === "active" || state === "disabled") && state !== account.status) {
-    if (account.id === admin.id) return failure("You cannot disable your own account.", 409);
-    if (state === "disabled" && account.role === "admin" && (await activeAdminCount(userId)) === 0) {
-      return failure("There has to be at least one active administrator.", 409);
+    if (account.id === superAdmin.id) return failure("You cannot disable your own account.", 409);
+    if (state === "disabled" && account.role === "super_admin" && (await activeSuperAdminCount(userId)) === 0) {
+      return failure("There has to be at least one active super administrator.", 409);
     }
     patch.status = state;
   }
@@ -293,7 +306,7 @@ async function updateUser(req: Request, admin: DeskUser, userId: number): Promis
   if (patch.status === "disabled") await endAllSessions(userId);
   await logEvent({
     type: "auth.user_updated",
-    actor: admin.email,
+    actor: superAdmin.email,
     detail: `${account.email}: ${patch.role ? `role ${patch.role} ` : ""}${patch.status ? `access ${patch.status}` : ""}`.trim(),
     ipHash,
   });
@@ -323,7 +336,7 @@ export default async (req: Request): Promise<Response> => {
     if (resource === "users") {
       const user = await authenticate(req);
       if (!user) return unauthorised();
-      if (user.role !== "admin") return forbidden("Only an administrator can manage console accounts.");
+      if (user.role !== "super_admin") return forbidden("Only a super administrator can manage console accounts.");
 
       if (!second) {
         if (req.method === "GET") return await listUsers();

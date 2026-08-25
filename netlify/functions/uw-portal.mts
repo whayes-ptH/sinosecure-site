@@ -27,6 +27,7 @@ import {
 import {
   countStoredDocuments,
   createProject,
+  findOrCreateClient,
   hasOpenedTooManyProjects,
   listStoredDocuments,
   logEvent,
@@ -42,6 +43,7 @@ function stagingKey(documentId: number, index: number): string {
 
 function projectView(project: {
   reference: string;
+  projectName: string;
   organisation: string | null;
   contactName: string | null;
   coverageInterest: string | null;
@@ -50,6 +52,7 @@ function projectView(project: {
 }) {
   return {
     reference: project.reference,
+    projectName: project.projectName,
     organisation: project.organisation,
     contactName: project.contactName,
     coverageInterest: project.coverageInterest,
@@ -102,9 +105,17 @@ async function handleRequest(req: Request): Promise<Response> {
   const interest = clampText(body.interest, 60);
   const coverageInterest =
     interest && (COVERAGE_INTERESTS as readonly string[]).includes(interest) ? interest : COVERAGE_INTERESTS[0];
+  const organisation = clampText(body.company, 160);
+  const client = await findOrCreateClient({
+    name: organisation ?? contactName,
+    contactName,
+    contactEmail,
+  });
 
   const { project, accessCode } = await createProject({
-    organisation: clampText(body.company, 160),
+    clientId: client.id,
+    projectName: `${coverageInterest} enquiry`,
+    organisation,
     contactName,
     contactEmail,
     coverageInterest,
@@ -128,7 +139,7 @@ async function handleRequest(req: Request): Promise<Response> {
     reference: project.reference,
     organisation: project.organisation ?? "",
     contact: `${contactName} <${contactEmail}>`,
-    detail: `Matter opened from the enquiry form. Coverage interest: ${coverageInterest}.`,
+    detail: `Coverage interest: ${coverageInterest}.\n\n${matterSummary}`,
   });
 
   return json({

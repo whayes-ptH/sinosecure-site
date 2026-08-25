@@ -15,7 +15,7 @@ export const SESSION_COOKIE = "sino_uw_session";
 /** A trading day. Long enough not to nag, short enough that a shared laptop goes cold. */
 export const SESSION_HOURS = 12;
 export const MIN_PASSWORD_LENGTH = 12;
-export const USER_ROLES = ["admin", "staff"] as const;
+export const USER_ROLES = ["super_admin", "admin", "staff"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 const MAX_LOGIN_ATTEMPTS = 8;
@@ -30,6 +30,10 @@ export type DeskUser = {
   role: UserRole;
   mustChangePassword: boolean;
 };
+
+export function userRole(value: unknown): UserRole {
+  return (USER_ROLES as readonly unknown[]).includes(value) ? (value as UserRole) : "staff";
+}
 
 export function normaliseEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -172,7 +176,7 @@ export async function authenticate(req: Request): Promise<DeskUser | null> {
     id: row.id,
     email: row.email,
     name: row.name,
-    role: row.role === "admin" ? "admin" : "staff",
+    role: userRole(row.role),
     mustChangePassword: row.mustChangePassword,
   };
 }
@@ -198,18 +202,18 @@ export async function userCount(): Promise<number> {
   return row?.total ?? 0;
 }
 
-export async function activeAdminCount(exceptUserId?: number): Promise<number> {
+export async function activeSuperAdminCount(exceptUserId?: number): Promise<number> {
   const [row] = await db
     .select({ total: count() })
     .from(underwritingUsers)
     .where(
       exceptUserId
         ? and(
-            eq(underwritingUsers.role, "admin"),
+            eq(underwritingUsers.role, "super_admin"),
             eq(underwritingUsers.status, "active"),
             ne(underwritingUsers.id, exceptUserId),
           )
-        : and(eq(underwritingUsers.role, "admin"), eq(underwritingUsers.status, "active")),
+        : and(eq(underwritingUsers.role, "super_admin"), eq(underwritingUsers.status, "active")),
     );
   return row?.total ?? 0;
 }

@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { DeskError, post, type DeskUser } from "./deskApi";
+import { DeskError, post, type DeskUser, type NotificationConfiguration } from "./deskApi";
 
 type GateState = { needsSetup: boolean; bootstrapReady: boolean };
+type SignedIn = {
+  user: DeskUser;
+  mailerConfigured?: boolean;
+  notifications?: NotificationConfiguration;
+};
 
 /**
- * The way in. On a brand-new site this creates the first administrator using the
+ * The way in. On a brand-new site this creates the first super administrator using the
  * one-time setup key; from then on it is an ordinary email and password sign-in.
  */
 export function DeskGate({
@@ -14,7 +19,7 @@ export function DeskGate({
   onSignedIn,
 }: {
   gate: GateState;
-  onSignedIn: (user: DeskUser) => void;
+  onSignedIn: (status: SignedIn) => void;
 }) {
   const [mode, setMode] = useState<"signIn" | "setup">(gate.needsSetup ? "setup" : "signIn");
   const [error, setError] = useState<string | null>(null);
@@ -30,8 +35,8 @@ export function DeskGate({
       if (mode === "setup" && data.password !== data.confirmPassword) {
         throw new DeskError("Those two passwords do not match.", 400);
       }
-      const payload = await post<{ user: DeskUser }>(mode === "setup" ? "/auth/setup" : "/auth/login", data);
-      onSignedIn(payload.user);
+      const payload = await post<SignedIn>(mode === "setup" ? "/auth/setup" : "/auth/login", data);
+      onSignedIn(payload);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "That did not work.");
     } finally {
@@ -47,12 +52,12 @@ export function DeskGate({
       {mode === "setup" ? (
         <>
           <p>
-            First-time setup. Create the administrator account that will run the console and add the rest of the team.
+            First-time setup. Create the super-administrator account that will run the console and add the rest of the team.
           </p>
           {!gate.bootstrapReady ? (
             <p className="form-error" role="alert">
               Set UNDERWRITING_ADMIN_KEY in the Netlify environment (at least 16 characters) and redeploy, then create
-              the administrator here. It is asked for once and never again.
+              the super administrator here. It is asked for once and never again.
             </p>
           ) : null}
           <form className="desk-form-plain" onSubmit={submit}>
@@ -78,7 +83,7 @@ export function DeskGate({
             </label>
             <p className="form-note">At least 12 characters. This becomes your day-to-day sign-in.</p>
             <button className="button" type="submit" disabled={busy}>
-              {busy ? "Creating…" : "Create administrator"}
+              {busy ? "Creating…" : "Create super administrator"}
             </button>
           </form>
         </>

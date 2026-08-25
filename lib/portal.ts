@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { underwritingDocuments, underwritingEvents, underwritingProjects } from "../db/schema.js";
+import { underwritingClients, underwritingDocuments, underwritingEvents, underwritingProjects } from "../db/schema.js";
 import {
   ATTEMPT_WINDOW_MINUTES,
   MAX_FAILED_ATTEMPTS,
@@ -13,6 +13,43 @@ import {
 } from "./underwriting.js";
 
 export type Project = typeof underwritingProjects.$inferSelect;
+export type Client = typeof underwritingClients.$inferSelect;
+
+export function normaliseClientEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Reuses an existing client by normalized email, otherwise creates it. */
+export async function findOrCreateClient(input: {
+  name: string;
+  contactName?: string | null;
+  contactEmail: string;
+}): Promise<Client> {
+  const contactEmail = normaliseClientEmail(input.contactEmail);
+  const [existing] = await db
+    .select()
+    .from(underwritingClients)
+    .where(eq(underwritingClients.contactEmail, contactEmail))
+    .limit(1);
+  if (existing) return existing;
+
+  try {
+    const [created] = await db
+      .insert(underwritingClients)
+      .values({ name: input.name, contactName: input.contactName ?? null, contactEmail })
+      .returning();
+    return created;
+  } catch (error) {
+    // A simultaneous enquiry for the same email can win the unique-index race.
+    const [raced] = await db
+      .select()
+      .from(underwritingClients)
+      .where(eq(underwritingClients.contactEmail, contactEmail))
+      .limit(1);
+    if (raced) return raced;
+    throw error;
+  }
+}
 
 export async function logEvent(entry: {
   projectId?: number | null;
@@ -124,6 +161,8 @@ export async function hasOpenedTooManyProjects(req: Request): Promise<boolean> {
 
 /** Retries on the (vanishingly unlikely) reference collision rather than failing a client. */
 export async function createProject(input: {
+  clientId: number;
+  projectName: string;
   organisation?: string | null;
   contactName?: string | null;
   contactEmail?: string | null;
@@ -142,6 +181,8 @@ export async function createProject(input: {
       const [project] = await db
         .insert(underwritingProjects)
         .values({
+          clientId: input.clientId,
+          projectName: input.projectName,
           reference: createReference(),
           accessCodeHash: hashAccessCode(accessCode),
           organisation: input.organisation ?? null,
