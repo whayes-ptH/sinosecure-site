@@ -40,7 +40,7 @@ p { color: var(--muted); }
 .site-header { position: absolute; z-index: 20; top: 0; left: 0; width: 100%; border-bottom: 1px solid rgba(255,255,255,.16); background: rgba(4,23,39,.72); color: var(--white); backdrop-filter: blur(14px); }
 .header-inner { height: 88px; display: flex; align-items: center; gap: 38px; }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: inherit; line-height: 1; }
-.brand-mark { width: 40px; height: 40px; flex: none; }
+.brand-mark { width: auto; height: 44px; flex: none; object-fit: contain; }
 .brand strong { display: block; font-family: var(--display); font-size: 1.34rem; font-weight: 400; letter-spacing: .01em; }
 .brand small { display: block; margin-top: 5px; font-size: .55rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
 .desktop-nav { display: flex; gap: 28px; margin-left: auto; }
