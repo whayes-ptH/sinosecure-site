@@ -157,6 +157,7 @@ p { color: var(--muted); }
 .status-in_review { border-color: #2f6f8f; color: #235973; }
 .status-closed { border-color: var(--line); color: var(--muted); }
 .role-admin { border-color: #2f6f8f; color: #235973; }
+.role-super_admin { border-color: var(--gold); color: #8a4a22; }
 .role-staff { border-color: var(--line); color: var(--muted); }
 
 .dropzone { display: grid; justify-items: center; gap: 10px; padding: 40px 24px; border: 1px dashed #b6bfc6; background: #fbfbf9; text-align: center; transition: .2s ease; }
@@ -216,6 +217,11 @@ p { color: var(--muted); }
 
 /* Proposal composer and its result */
 .desk-form .eyebrow, .proposal-result .eyebrow { margin-bottom: 10px; }
+.settings-title { margin: 0 0 20px; font-family: var(--display); font-size: 1.65rem; font-weight: 400; }
+.settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0 0 18px; }
+.settings-grid div { padding: 16px; border: 1px solid var(--line); background: #fbfbf9; }
+.settings-grid dt { color: var(--muted); font-size: .64rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.settings-grid dd { margin: 6px 0 0; overflow-wrap: anywhere; font-size: .86rem; }
 .form-lead { margin: 0 0 26px; max-width: 620px; font-size: .9rem; }
 .label-hint { color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .form-success { margin: 15px 0 0; color: #2f7a4f; font-size: .8rem; font-weight: 600; }
@@ -279,6 +285,7 @@ p { color: var(--muted); }
   .contact-form { padding: 25px 20px; }
   .secure-card, .desk-gate { padding: 25px 20px; }
   .matter-head { flex-direction: column; }
+  .settings-grid { grid-template-columns: 1fr; }
   .desk-table { display: block; overflow-x: auto; white-space: nowrap; }
   .audit-list li { grid-template-columns: 1fr; gap: 4px; }
   .footer-grid { grid-template-columns: 1fr 1fr; gap: 40px 25px; }

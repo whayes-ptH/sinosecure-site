@@ -1,193 +1,193 @@
-# Sino Secure — Project Handoff
+# Sino Secure — Operational Handoff
 
-Handoff notes for the production website at **sinosecure.eu**. Everything a new
-maintainer needs to run, change, and deploy the site is below.
+Current architecture and release instructions for `sinosecure.eu`. This supersedes
+the original marketing-only handoff: the site now has authentication, a database,
+private document storage, staff accounts, clients, projects and customer upload
+tokens.
 
----
+## 1. Product surfaces
 
-## 1. What this is
+| Route | Audience | Purpose |
+| --- | --- | --- |
+| `/` | Public | Marketing site |
+| `/contact#enquiry` | Public | Creates or matches a client, opens a new project and issues its upload token |
+| `/secure-upload/[code]` | Customer | Project-specific document upload |
+| `/underwriting-desk` | Staff | Login, clients, projects, proposals, tokens, documents and users |
 
-A four-page marketing and lead-capture site for Sino Secure, a specialty
-insurance business (marine and cargo, financial guarantee, indemnity and
-liability, specialty risk). The only interactive element is an underwriting
-enquiry form; there is no application logic, no database, no authentication
-and no user accounts.
+Private routes are excluded from indexing and sent with `Cache-Control: no-store`.
 
-| | |
-|---|---|
-| Framework | Next.js 16.3.1, App Router, React 19.2 |
-| Language | TypeScript 7.0 (strict via `tsconfig.json`) |
-| Styling | Tailwind CSS 4.3 (`@import "tailwindcss"`) plus hand-written CSS in `src/app/globals.css` |
-| Hosting | Netlify — project slug `sinosecure-site` |
-| Runtime | Node 22 (pinned in `netlify.toml`) |
-| Forms | Netlify Forms, form name `sino-underwriting` |
+## 2. Domain model
 
----
-
-## 2. Repository map
-
-```
-netlify.toml            Build command, Node version, security headers, www redirect
-next.config.ts          poweredByHeader off, React strict mode on
-src/app/
-  layout.tsx            Root layout, site-wide metadata, Header + Footer
-  globals.css           The entire design system (~167 lines) — see §4
-  page.tsx              Home page: hero, intro, solutions, sectors, network, CTA
-  contact/page.tsx      Enquiry page — office details + ContactForm
-  thank-you/page.tsx    Post-submit confirmation page
-  privacy-policy/       Legal copy
-  terms-of-service/     Legal copy
-  sitemap.ts            Generates /sitemap.xml for the four public pages
-  robots.ts             Generates /robots.txt, points at the sitemap
-src/components/
-  Header.tsx            Sticky translucent nav; mobile menu is a <details> element
-  Footer.tsx            Four-column footer with legal links and office address
-  Logo.tsx              Inline SVG wordmark, links home
-  ContactForm.tsx       The Netlify form (see §3)
-public/
-  __forms.html          Static form copy so Netlify can detect the form (see §3)
-  hero.webp             Home page hero image
-  favicon.svg
+```mermaid
+flowchart TD
+  U["Staff user"] -->|issues| C["Client"]
+  C --> A["Project A"]
+  C --> B["Project B"]
+  A --> AT["Current token + documents + audit"]
+  B --> BT["Current token + documents + audit"]
 ```
 
-Source is written in a deliberately dense style — most components are a single
-returned JSX expression on one long line. Match that style when editing so
-diffs stay readable against what is already there.
+A client is identified by a normalized primary business email and may have multiple
+projects. A project contains its own name, reference, proposal metadata, status,
+expiry and current token digest. Rotating the token updates only that project and
+immediately invalidates its previous link.
 
----
+Project rows retain contact/organisation snapshots so later client-detail changes do
+not rewrite historical correspondence.
 
-## 3. The contact form — read this before touching it
+## 3. Roles
 
-This is the one part of the site with a non-obvious mechanism, and the one
-most likely to break silently.
+| Capability | `super_admin` | `admin` | `staff` |
+| --- | --- | --- | --- |
+| Sign in | Yes | Yes | Yes |
+| Create/select clients | Yes | Yes | Yes |
+| Create project token | Yes | Yes | Yes |
+| Send proposal | Yes | Yes | Yes |
+| Review projects/documents/audit | Yes | Yes | Yes |
+| Add, disable, reset or assign users | Yes | No | No |
+| View notification configuration | Yes | No | No |
 
-Netlify detects forms by scanning **static HTML at deploy time**. A Next.js
-App Router page is server-rendered, so Netlify never sees the JSX form in
-`ContactForm.tsx`. That is why `public/__forms.html` exists: it is a hidden,
-static duplicate of the form that exists solely to be detected. It is not
-linked from anywhere and is never shown to a visitor.
+The first account is created with `UNDERWRITING_ADMIN_KEY` and receives
+`super_admin`. The bootstrap key is never a day-to-day credential or a customer
+token. The last active super administrator cannot be demoted or disabled.
 
-**The two files must stay in sync.** If you add, rename or remove a field in
-`src/components/ContactForm.tsx`, make the same change in
-`public/__forms.html`, or submissions for that field will be dropped.
+## 4. Environment configuration
 
-Current fields: `name`, `email`, `company`, `interest` (select), `message`,
-plus `company-website` as the honeypot declared via `data-netlify-honeypot`.
+| Variable | Use |
+| --- | --- |
+| `UNDERWRITING_ADMIN_KEY` | One-time super-admin bootstrap; minimum 16 characters |
+| `UNDERWRITING_NOTIFY_EMAIL` | Explicit recipient of enquiry and upload alerts |
+| `RESEND_API_KEY` | Direct outbound email |
+| `PROPOSAL_FROM_EMAIL` | Verified From identity for alerts and proposals |
+| `PROPOSAL_BCC_EMAIL` | Optional proposal archive copy |
+| `URL` | Netlify-provided canonical origin for upload links |
 
-Other details worth knowing:
+Approved production value: `UNDERWRITING_NOTIFY_EMAIL=underwriting@sinosecure.eu`.
 
-- The form posts to `/thank-you`, which is why that page exists as a real route
-  rather than a client-side state change.
-- The hidden `form-name` input carrying `sino-underwriting` is required — Netlify
-  uses it to route the submission. Do not remove it.
-- Submissions land in the Netlify UI under **Forms → sino-underwriting**. Nothing
-  emails them anywhere by default; notification recipients have to be configured
-  in the Netlify dashboard, and it is worth confirming someone is actually
-  receiving them.
-- Form detection has to be enabled on the Netlify project. If submissions stop
-  appearing after a deploy, check that setting first, then check whether
-  `__forms.html` survived the build.
-- The form carries a visible disclaimer that submitting does not bind coverage.
-  Keep it. It is there for regulatory reasons, not decoration.
+No enquiry recipient is hard-coded. Netlify Forms archives `sino-underwriting` and
+`sino-document-activity`. A separate email notification may also exist under
+**Netlify → Forms → Form notifications**, but that dashboard value cannot be read
+from the repository. The deterministic application recipient is
+`UNDERWRITING_NOTIFY_EMAIL`, displayed to the super admin under **Team & settings**.
 
----
+If a Netlify Forms notification and direct Resend notification point to the same
+mailbox, remove one notification route to prevent duplicates while retaining the form
+archive.
 
-## 4. Styling
+## 5. Database and migrations
 
-There is no component library and no CSS modules. `src/app/globals.css` holds
-the whole design system: CSS custom properties for the palette at the top, then
-plain class selectors used directly in the JSX (`.hero`, `.capability-grid`,
-`.portfolio-list`, `.cta-band`, and so on).
+Core tables:
 
-Palette tokens live in `:root` — `--ink` `#071d31`, `--ink-2` `#0d3047`,
-`--gold` `#db6f3d`, `--paper` `#f2f6f7`, `--muted` `#66717d`. Change a brand
-colour in one place there rather than in individual rules.
+- `underwriting_users` — password digest, role, status and login state
+- `underwriting_sessions` — hashed staff browser sessions
+- `underwriting_clients` — one row per normalized customer email
+- `underwriting_projects` — many projects per client; one current token digest each
+- `underwriting_documents` — private Blob metadata and SHA-256 checksum
+- `underwriting_events` — append-oriented security and matter audit trail
 
-Type is set with `clamp()` for fluid scaling, so headings resize without
-breakpoints. Tailwind is imported and available, but the existing markup barely
-uses utility classes — prefer extending `globals.css` in the same idiom over
-introducing a parallel utility-class style.
+Migrations are in `netlify/database/migrations` and are automatically applied by
+Netlify before a deploy is published. The two current follow-on migrations:
 
-Note that fonts are system stacks (`Helvetica Neue`, Arial). If a custom
-typeface is ever licensed, `--display` and `--sans` are the two variables to
-change.
+- promote one existing administrator to `super_admin` and constrain valid roles;
+- create the client table, backfill existing projects deterministically by normalized
+  email, add project names and enforce `client_id`.
 
----
+The client migration includes a compatibility trigger so the previous deployed build
+can still open an enquiry during Netlify's short migration-to-publication handover.
+Do not manually apply the migrations to production before publishing the matching
+code.
 
-## 5. Running it locally
+## 6. Authentication and user lifecycle
+
+- Passwords: scrypt, per-user random salt, minimum 12 characters.
+- Staff session: random 256-bit token; only SHA-256 digest stored.
+- Cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, 12-hour expiry.
+- Failed logins: IP-digest throttling and audit events.
+- New users: one-time generated password, mandatory password change.
+- Password change: invalidates every other session.
+- Disable/reset: invalidates all sessions immediately.
+- User APIs: server-enforced `super_admin`; hiding the UI is not the permission check.
+
+## 7. Client/project token workflow
+
+1. Staff signs in at `/underwriting-desk`.
+2. Under **Client token / proposal**, select an existing client or create a new one.
+3. Enter the required project/proposal name, coverage, expiry and internal note.
+4. Choose:
+   - **Send proposal** — opens the project, mints its token and sends/drafts the email.
+   - **Create client token** — opens the same project/token without sending email.
+5. Copy the plaintext token shown once. The database stores only its digest.
+6. The client uploads to the project link. Files and events cannot cross project IDs.
+7. Use **Matters → Issue a new access code** to rotate; the former token fails
+   immediately.
+
+The client register shows project counts so a returning client is selected instead of
+created again.
+
+## 8. Public enquiry workflow
+
+1. Validate name, business email and risk description; reject the honeypot.
+2. Normalize the business email and reuse or create the client.
+3. Open a new project below that client.
+4. Generate a reference and 80-bit Crockford-base32 upload token.
+5. Store the token digest and return the one-time plaintext code/link.
+6. Archive the enquiry through Netlify Forms and alert the explicit notification
+   mailbox when configured.
+
+The general form must not accept documents. Files use the code-gated portal.
+
+## 9. Document boundary
+
+- Private Netlify Blob store: `underwriting-documents`, strong consistency.
+- Maximum 25 MB per file, 40 stored files per project.
+- 3 MB browser chunks keep requests below synchronous Function limits.
+- Extension allow-list for documents, spreadsheets, presentations, images, archives
+  and email files.
+- Server reassembles, validates byte length and records SHA-256.
+- Desk downloads require a live staff session and use
+  `Content-Type: application/octet-stream` plus `Content-Disposition: attachment`.
+- Upload and download actions are audited.
+
+## 10. Code map
+
+| File | Responsibility |
+| --- | --- |
+| `db/schema.ts` | Users, sessions, clients, projects, documents and events |
+| `lib/auth.ts` | Passwords, sessions, throttling and role helpers |
+| `lib/email.ts` | Resend boundary and notification configuration |
+| `lib/portal.ts` | Client matching, project/token creation and resolution |
+| `lib/proposal.ts` | Proposal text, mailto fallback and direct delivery |
+| `lib/underwriting.ts` | Token format, uploads, responses and desk notifications |
+| `netlify/functions/uw-auth.mts` | Setup, login, password and user APIs |
+| `netlify/functions/uw-desk.mts` | Client/project/proposal/token/document staff APIs |
+| `netlify/functions/uw-portal.mts` | Public enquiry and customer upload APIs |
+| `src/components/desk/` | Authenticated operator UI |
+| `public/__forms.html` | Netlify's static form detector definitions |
+
+## 11. Deployment and smoke test
+
+Run locally:
 
 ```bash
-npm install
-npm run dev        # Next dev server with Turbopack
-npm run typecheck  # tsc --noEmit — run this before pushing
-npm run build      # production build
+npm ci
+npm run typecheck
+npm run build
 ```
 
-To exercise Netlify features locally — form handling in particular — use the
-Netlify CLI instead of `npm run dev`, since the plain dev server has no form
-backend:
+After the deploy preview is ready:
 
-```bash
-netlify dev --port 8889
-```
+1. Confirm the database migrations applied.
+2. Sign in as the promoted or newly created super admin.
+3. Confirm **Team & settings** shows the intended notification email and `Ready`.
+4. Add a temporary staff user; set its permanent password.
+5. Confirm staff cannot access `/api/underwriting/desk/users` (`403`).
+6. Create one client and two named projects beneath it.
+7. Confirm the client register reports two projects and Matters keeps them separate.
+8. Upload a harmless PDF to project A; confirm project B shows no document.
+9. Rotate project A's token; confirm old code fails and new code succeeds.
+10. Confirm the alert mailbox receives one enquiry/upload notification and Forms has
+    the corresponding archive entries.
+11. Disable the temporary user and confirm its session ends.
 
-There is no test suite and no linting step configured. `npm run typecheck` is
-the only automated check, so run it.
-
----
-
-## 6. Deployment
-
-Netlify builds from the repository using the committed `netlify.toml`:
-`npm run build`, publishing `.next`, on Node 22. There is no manual deploy step
-and no environment variables are required — the site has no secrets, no API
-keys and no backend services.
-
-`netlify.toml` also carries two things worth preserving:
-
-- **Security headers** on every route: `X-Frame-Options: SAMEORIGIN`,
-  `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-  strict-origin-when-cross-origin`, and a `Permissions-Policy` denying camera,
-  microphone and geolocation.
-- **A 301 redirect** from `www.sinosecure.eu` to the apex domain, forced. The
-  apex is canonical; SEO metadata, the sitemap and `metadataBase` all assume it.
-
-`NETLIFY_NEXT_SKEW_PROTECTION` is enabled, which keeps clients on a consistent
-build during rollouts.
-
----
-
-## 7. SEO and metadata
-
-`metadataBase` is set to `https://sinosecure.eu` in `layout.tsx`, with a title
-template of `%s | Sino Secure` and an Open Graph image pointing at
-`/hero.webp`. Per-page titles are set in each page's exported `metadata`.
-
-`sitemap.ts` enumerates the four public routes explicitly. **If you add a page,
-add it to that array** — it is a hardcoded list, not a filesystem crawl. The
-thank-you page is deliberately excluded.
-
----
-
-## 8. Open items for whoever picks this up
-
-None of these are broken; they are the decisions and checks left outstanding.
-
-1. **Confirm form notifications have a recipient.** Enquiries are commercial
-   leads. Silent form submissions are the highest-consequence failure mode this
-   site has.
-2. **Verify DNS and the domain alias.** The apex should be primary with `www` as
-   an alias, so the redirect in `netlify.toml` behaves as intended.
-3. **Have the legal pages reviewed.** The privacy policy and terms of use are
-   drafted but should be signed off by someone qualified, particularly given the
-   Australian business entity and the `.eu` domain — GDPR obligations around the
-   personal data collected by the enquiry form are the specific question.
-4. **The business address is Australian** (Suite 7, 334 Highbury Road, Mount
-   Waverley VIC 3149) and appears in both the footer and the contact page.
-   Update both if it changes.
-5. **No analytics are installed.** If lead attribution matters, that is a
-   deliberate gap to fill.
-6. **No test suite or CI checks.** Reasonable for a site this size, but worth
-   adding a typecheck step to CI if the site grows.
-7. **The footer copyright year is computed at render time** via
-   `new Date().getFullYear()`, so it does not need annual maintenance.
+Do not use a Netlify personal access token, `UNDERWRITING_ADMIN_KEY`, staff session
+cookie or Resend key as a client upload token. These are separate credential domains.

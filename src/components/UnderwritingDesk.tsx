@@ -2,13 +2,21 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AccountView } from "./desk/AccountView";
+import { ClientsView } from "./desk/ClientsView";
 import { DeskGate } from "./desk/DeskGate";
 import { MattersView } from "./desk/MattersView";
 import { ProposalComposer } from "./desk/ProposalComposer";
 import { TeamView } from "./desk/TeamView";
-import { SESSION_EXPIRED_EVENT, call, post, type DeskUser, type ProjectRow } from "./desk/deskApi";
+import {
+  SESSION_EXPIRED_EVENT,
+  call,
+  post,
+  type DeskUser,
+  type NotificationConfiguration,
+  type ProjectRow,
+} from "./desk/deskApi";
 
-type View = "send" | "matters" | "team" | "account";
+type View = "send" | "clients" | "matters" | "team" | "account";
 
 type Status = {
   authenticated: boolean;
@@ -16,13 +24,20 @@ type Status = {
   needsSetup?: boolean;
   bootstrapReady?: boolean;
   mailerConfigured?: boolean;
+  notifications?: NotificationConfiguration;
 };
+
+function roleLabel(role: DeskUser["role"]): string {
+  if (role === "super_admin") return "super administrator";
+  return role === "admin" ? "administrator" : "staff";
+}
 
 export function UnderwritingDesk() {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<DeskUser | null>(null);
   const [gate, setGate] = useState({ needsSetup: false, bootstrapReady: true });
   const [mailerConfigured, setMailerConfigured] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationConfiguration | null>(null);
   const [view, setView] = useState<View>("send");
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +50,7 @@ export function UnderwritingDesk() {
         if (status.authenticated && status.user) {
           setUser(status.user);
           setMailerConfigured(Boolean(status.mailerConfigured));
+          setNotifications(status.notifications ?? null);
         } else {
           setGate({ needsSetup: Boolean(status.needsSetup), bootstrapReady: status.bootstrapReady !== false });
         }
@@ -55,6 +71,7 @@ export function UnderwritingDesk() {
     function expired() {
       setUser(null);
       setProjects([]);
+      setNotifications(null);
       setView("send");
       setError("Your session has ended. Please sign in again.");
     }
@@ -70,6 +87,7 @@ export function UnderwritingDesk() {
     }
     setUser(null);
     setProjects([]);
+    setNotifications(null);
     setView("send");
     setGate((current) => ({ ...current, needsSetup: false }));
   }
@@ -95,7 +113,9 @@ export function UnderwritingDesk() {
         <DeskGate
           gate={gate}
           onSignedIn={(signedIn) => {
-            setUser(signedIn);
+            setUser(signedIn.user);
+            setMailerConfigured(Boolean(signedIn.mailerConfigured));
+            setNotifications(signedIn.notifications ?? null);
             setError(null);
           }}
         />
@@ -104,9 +124,10 @@ export function UnderwritingDesk() {
   }
 
   const views: { key: View; label: string }[] = [
-    { key: "send", label: "Send proposal" },
+    { key: "send", label: "Client token / proposal" },
+    { key: "clients", label: "Clients" },
     { key: "matters", label: "Matters" },
-    ...(user.role === "admin" ? ([{ key: "team", label: "Team" }] as const) : []),
+    ...(user.role === "super_admin" ? ([{ key: "team", label: "Team & settings" }] as const) : []),
     { key: "account", label: "Account" },
   ];
 
@@ -117,7 +138,7 @@ export function UnderwritingDesk() {
           <p className="eyebrow">Underwriting console</p>
           <h1 className="desk-title">{user.name}</h1>
           <p className="matter-meta">
-            {user.email} · {user.role === "admin" ? "administrator" : "staff"}
+            {user.email} · {roleLabel(user.role)}
           </p>
         </div>
         <div className="desk-actions">
@@ -160,8 +181,11 @@ export function UnderwritingDesk() {
               onIssued={(project) => setProjects((current) => [project, ...current])}
             />
           ) : null}
+          {view === "clients" ? <ClientsView onError={report} /> : null}
           {view === "matters" ? <MattersView projects={projects} onProjects={setProjects} onError={report} /> : null}
-          {view === "team" && user.role === "admin" ? <TeamView user={user} onError={report} /> : null}
+          {view === "team" && user.role === "super_admin" ? (
+            <TeamView user={user} notifications={notifications} onError={report} />
+          ) : null}
           {view === "account" ? <AccountView user={user} onUpdated={setUser} /> : null}
         </>
       )}

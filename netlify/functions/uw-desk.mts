@@ -5,6 +5,7 @@ import { db } from "../../db/index.js";
 import {
   underwritingDocuments,
   underwritingEvents,
+  underwritingClients,
   underwritingProjects,
   underwritingUsers,
 } from "../../db/schema.js";
@@ -19,12 +20,13 @@ import {
   failure,
   formatAccessCode,
   hashIp,
+  isEmail,
   json,
   notifyDesk,
   uploadLink,
 } from "../../lib/underwriting.js";
 import { authenticate, originAllowed, unauthorised, type DeskUser } from "../../lib/auth.js";
-import { createProject, logEvent, rotateAccessCode } from "../../lib/portal.js";
+import { createProject, findOrCreateClient, logEvent, rotateAccessCode, type Client } from "../../lib/portal.js";
 import {
   deliverProposal,
   invitationText,
@@ -38,7 +40,9 @@ import {
 const issuer = alias(underwritingUsers, "issuer");
 
 type MatterInput = {
-  organisation: string | null;
+  clientId: number | null;
+  clientName: string | null;
+  projectName: string | null;
   contactName: string | null;
   contactEmail: string | null;
   coverageInterest: string | null;
@@ -49,8 +53,11 @@ type MatterInput = {
 function readMatterInput(body: Record<string, unknown> | null): MatterInput {
   const interest = clampText(body?.coverageInterest, 60);
   const days = Number(body?.expiryDays);
+  const clientId = Number(body?.clientId);
   return {
-    organisation: clampText(body?.organisation, 160),
+    clientId: Number.isInteger(clientId) && clientId > 0 ? clientId : null,
+    clientName: clampText(body?.clientName, 160),
+    projectName: clampText(body?.projectName, 200),
     contactName: clampText(body?.contactName, 120),
     contactEmail: clampText(body?.contactEmail, 160),
     coverageInterest: interest && (COVERAGE_INTERESTS as readonly string[]).includes(interest) ? interest : null,
@@ -59,10 +66,50 @@ function readMatterInput(body: Record<string, unknown> | null): MatterInput {
   };
 }
 
+type ResolvedMatterClient = {
+  client: Client;
+  organisation: string | null;
+  contactName: string | null;
+  contactEmail: string;
+};
+
+async function resolveMatterClient(input: MatterInput): Promise<ResolvedMatterClient | null> {
+  if (input.clientId) {
+    const [client] = await db
+      .select()
+      .from(underwritingClients)
+      .where(eq(underwritingClients.id, input.clientId))
+      .limit(1);
+    if (!client || client.status !== "active" || !client.contactEmail) return null;
+    return {
+      client,
+      organisation: client.name,
+      contactName: client.contactName,
+      contactEmail: client.contactEmail,
+    };
+  }
+
+  if (!input.clientName || !input.contactEmail || !isEmail(input.contactEmail)) return null;
+  const client = await findOrCreateClient({
+    name: input.clientName,
+    contactName: input.contactName,
+    contactEmail: input.contactEmail,
+  });
+  return {
+    client,
+    organisation: client.name,
+    contactName: client.contactName,
+    contactEmail: client.contactEmail as string,
+  };
+}
+
 async function listProjects(): Promise<Response> {
   const rows = await db
     .select({
       id: underwritingProjects.id,
+      clientId: underwritingProjects.clientId,
+      clientName: underwritingClients.name,
+      projectName: underwritingProjects.projectName,
       reference: underwritingProjects.reference,
       organisation: underwritingProjects.organisation,
       contactName: underwritingProjects.contactName,
@@ -77,6 +124,7 @@ async function listProjects(): Promise<Response> {
       issuedBy: issuer.name,
     })
     .from(underwritingProjects)
+    .innerJoin(underwritingClients, eq(underwritingProjects.clientId, underwritingClients.id))
     .leftJoin(issuer, eq(underwritingProjects.issuedByUserId, issuer.id))
     .orderBy(desc(underwritingProjects.createdAt))
     .limit(200);
@@ -101,8 +149,39 @@ async function listProjects(): Promise<Response> {
   });
 }
 
+async function listClients(): Promise<Response> {
+  const rows = await db
+    .select({
+      id: underwritingClients.id,
+      name: underwritingClients.name,
+      contactName: underwritingClients.contactName,
+      contactEmail: underwritingClients.contactEmail,
+      status: underwritingClients.status,
+      createdAt: underwritingClients.createdAt,
+    })
+    .from(underwritingClients)
+    .orderBy(desc(underwritingClients.createdAt))
+    .limit(500);
+  const counts = await db
+    .select({ clientId: underwritingProjects.clientId, total: count() })
+    .from(underwritingProjects)
+    .groupBy(underwritingProjects.clientId);
+  const byClient = new Map(counts.map((row) => [row.clientId, row.total]));
+
+  return json({
+    ok: true,
+    clients: rows.map((row) => ({
+      ...row,
+      createdAt: row.createdAt.toISOString(),
+      projectCount: byClient.get(row.id) ?? 0,
+    })),
+  });
+}
+
 function serialiseProject(project: {
   id: number;
+  clientId: number;
+  projectName: string;
   reference: string;
   organisation: string | null;
   contactName: string | null;
@@ -113,9 +192,12 @@ function serialiseProject(project: {
   createdAt: Date;
   expiresAt: Date;
   proposalSentAt: Date | null;
-}, issuedBy: string | null) {
+}, issuedBy: string | null, clientName: string) {
   return {
     id: project.id,
+    clientId: project.clientId,
+    clientName,
+    projectName: project.projectName,
     reference: project.reference,
     organisation: project.organisation,
     contactName: project.contactName,
@@ -140,10 +222,18 @@ function serialiseProject(project: {
 async function sendProposal(req: Request, user: DeskUser): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const input = readMatterInput(body);
-  if (!input.contactEmail) return failure("Enter the client's email address.");
+  if (!input.projectName) return failure("Enter a project or proposal name.");
+  const resolvedClient = await resolveMatterClient(input);
+  if (!resolvedClient) return failure("Select an active client or enter a new client's name and valid email address.");
 
   const { project, accessCode } = await createProject({
-    ...input,
+    clientId: resolvedClient.client.id,
+    projectName: input.projectName,
+    organisation: resolvedClient.organisation,
+    contactName: resolvedClient.contactName,
+    contactEmail: resolvedClient.contactEmail,
+    coverageInterest: input.coverageInterest,
+    matterSummary: input.matterSummary,
     origin: "underwriter",
     issuedByUserId: user.id,
     proposalSentAt: new Date(),
@@ -154,7 +244,7 @@ async function sendProposal(req: Request, user: DeskUser): Promise<Response> {
   const email: ProposalEmail = {
     to: project.contactEmail as string,
     replyTo: user.email,
-    subject: proposalSubject(project.reference, project.organisation),
+    subject: proposalSubject(project.reference, project.organisation, project.projectName),
     body: proposalBody({
       reference: project.reference,
       accessCode,
@@ -188,12 +278,12 @@ async function sendProposal(req: Request, user: DeskUser): Promise<Response> {
   void notifyDesk({
     reference: project.reference,
     event: delivery.delivered ? "proposal emailed" : "proposal drafted",
-    detail: `${email.to} · issued by ${user.name}`,
+    detail: `${project.projectName} · ${email.to} · issued by ${user.name}`,
   });
 
   return json({
     ok: true,
-    project: serialiseProject(project, user.name),
+    project: serialiseProject(project, user.name, resolvedClient.client.name),
     accessCode: formatAccessCode(accessCode),
     uploadLink: link,
     invitation: invitationText(project.reference, accessCode, link, project.expiresAt),
@@ -208,9 +298,18 @@ async function sendProposal(req: Request, user: DeskUser): Promise<Response> {
 async function openProject(req: Request, user: DeskUser): Promise<Response> {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const input = readMatterInput(body);
+  if (!input.projectName) return failure("Enter a project or proposal name.");
+  const resolvedClient = await resolveMatterClient(input);
+  if (!resolvedClient) return failure("Select an active client or enter a new client's name and valid email address.");
 
   const { project, accessCode } = await createProject({
-    ...input,
+    clientId: resolvedClient.client.id,
+    projectName: input.projectName,
+    organisation: resolvedClient.organisation,
+    contactName: resolvedClient.contactName,
+    contactEmail: resolvedClient.contactEmail,
+    coverageInterest: input.coverageInterest,
+    matterSummary: input.matterSummary,
     origin: "underwriter",
     issuedByUserId: user.id,
     expiresAt: expiryFromNow(input.expiryDays),
@@ -227,7 +326,7 @@ async function openProject(req: Request, user: DeskUser): Promise<Response> {
   const link = uploadLink(accessCode);
   return json({
     ok: true,
-    project: serialiseProject(project, user.name),
+    project: serialiseProject(project, user.name, resolvedClient.client.name),
     accessCode: formatAccessCode(accessCode),
     uploadLink: link,
     invitation: invitationText(project.reference, accessCode, link, project.expiresAt),
@@ -236,8 +335,9 @@ async function openProject(req: Request, user: DeskUser): Promise<Response> {
 
 async function projectDetail(projectId: number): Promise<Response> {
   const [row] = await db
-    .select({ project: underwritingProjects, issuedBy: issuer.name })
+    .select({ project: underwritingProjects, issuedBy: issuer.name, clientName: underwritingClients.name })
     .from(underwritingProjects)
+    .innerJoin(underwritingClients, eq(underwritingProjects.clientId, underwritingClients.id))
     .leftJoin(issuer, eq(underwritingProjects.issuedByUserId, issuer.id))
     .where(eq(underwritingProjects.id, projectId))
     .limit(1);
@@ -276,6 +376,9 @@ async function projectDetail(projectId: number): Promise<Response> {
     ok: true,
     project: {
       id: project.id,
+      clientId: project.clientId,
+      clientName: row.clientName,
+      projectName: project.projectName,
       reference: project.reference,
       organisation: project.organisation,
       contactName: project.contactName,
@@ -394,6 +497,7 @@ export default async (req: Request): Promise<Response> => {
 
   try {
     if (resource === "session") return json({ ok: true, user, mailerConfigured: mailerConfigured() });
+    if (resource === "clients" && !rawId && req.method === "GET") return await listClients();
     if (resource === "proposals" && !rawId && req.method === "POST") return await sendProposal(req, user);
     if (resource === "projects" && !rawId) {
       if (req.method === "GET") return await listProjects();
@@ -417,6 +521,7 @@ export default async (req: Request): Promise<Response> => {
 export const config: Config = {
   path: [
     "/api/underwriting/desk/session",
+    "/api/underwriting/desk/clients",
     "/api/underwriting/desk/proposals",
     "/api/underwriting/desk/projects",
     "/api/underwriting/desk/projects/:id",

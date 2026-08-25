@@ -2,13 +2,14 @@ import { boolean, index, integer, pgTable, serial, text, timestamp } from "drizz
 
 /**
  * A console account. Staff sign in with an email and password; the password is only
- * ever held as a scrypt digest with a per-account salt. The first admin is created
+ * ever held as a scrypt digest with a per-account salt. The first super admin is created
  * once, from the setup screen, using UNDERWRITING_ADMIN_KEY as the bootstrap secret.
  */
 export const underwritingUsers = pgTable("underwriting_users", {
   id: serial().primaryKey(),
   email: text().notNull().unique(),
   name: text().notNull(),
+  /** super_admin manages accounts; admin and staff operate underwriting matters. */
   role: text().notNull().default("staff"),
   passwordHash: text("password_hash").notNull(),
   passwordSalt: text("password_salt").notNull(),
@@ -36,29 +37,48 @@ export const underwritingSessions = pgTable(
   (table) => [index("underwriting_sessions_user_idx").on(table.userId)],
 );
 
+/** A potential or active customer. One client can own any number of projects. */
+export const underwritingClients = pgTable("underwriting_clients", {
+  id: serial().primaryKey(),
+  name: text().notNull(),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email").unique(),
+  status: text().notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /**
- * An underwriting matter. The `reference` is the non-secret identifier quoted in
+ * A client project / proposal. The `reference` is the non-secret identifier quoted in
  * proposals and correspondence; `accessCodeHash` is the SHA-256 of the secret code
  * that unlocks the upload portal. The plaintext code is never stored.
  */
-export const underwritingProjects = pgTable("underwriting_projects", {
-  id: serial().primaryKey(),
-  reference: text().notNull().unique(),
-  accessCodeHash: text("access_code_hash").notNull().unique(),
-  organisation: text(),
-  contactName: text("contact_name"),
-  contactEmail: text("contact_email"),
-  coverageInterest: text("coverage_interest"),
-  matterSummary: text("matter_summary"),
-  status: text().notNull().default("open"),
-  origin: text().notNull().default("client"),
-  issuedByUserId: integer("issued_by_user_id").references(() => underwritingUsers.id),
-  proposalSentAt: timestamp("proposal_sent_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  lastAccessAt: timestamp("last_access_at", { withTimezone: true }),
-});
+export const underwritingProjects = pgTable(
+  "underwriting_projects",
+  {
+    id: serial().primaryKey(),
+    clientId: integer("client_id")
+      .notNull()
+      .references(() => underwritingClients.id),
+    projectName: text("project_name").notNull(),
+    reference: text().notNull().unique(),
+    accessCodeHash: text("access_code_hash").notNull().unique(),
+    organisation: text(),
+    contactName: text("contact_name"),
+    contactEmail: text("contact_email"),
+    coverageInterest: text("coverage_interest"),
+    matterSummary: text("matter_summary"),
+    status: text().notNull().default("open"),
+    origin: text().notNull().default("client"),
+    issuedByUserId: integer("issued_by_user_id").references(() => underwritingUsers.id),
+    proposalSentAt: timestamp("proposal_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastAccessAt: timestamp("last_access_at", { withTimezone: true }),
+  },
+  (table) => [index("underwriting_projects_client_idx").on(table.clientId)],
+);
 
 /**
  * One row per file. Rows start as `pending` while chunks are streamed into Blobs

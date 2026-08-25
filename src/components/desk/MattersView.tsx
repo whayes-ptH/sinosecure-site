@@ -116,7 +116,7 @@ export function MattersView({
       <table className="desk-table">
         <thead>
           <tr>
-            <th>Reference</th>
+            <th>Project</th>
             <th>Client</th>
             <th>Coverage</th>
             <th>Issued by</th>
@@ -129,9 +129,12 @@ export function MattersView({
         <tbody>
           {projects.map((project) => (
             <tr key={project.id}>
-              <td className="mono">{project.reference}</td>
               <td>
-                {project.organisation ?? project.contactName ?? "—"}
+                {project.projectName}
+                <small className="mono">{project.reference}</small>
+              </td>
+              <td>
+                {project.clientName}
                 {project.contactEmail ? <small>{project.contactEmail}</small> : null}
               </td>
               <td>{project.coverageInterest ?? "—"}</td>
@@ -164,9 +167,9 @@ export function MattersView({
           <div className="matter-head">
             <div>
               <p className="eyebrow">{detail.project.reference}</p>
-              <h2 className="desk-title">{detail.project.organisation ?? detail.project.contactName ?? "Matter"}</h2>
+              <h2 className="desk-title">{detail.project.projectName}</h2>
               <p className="matter-meta">
-                {detail.project.contactEmail ?? "no email on file"} · opened {formatDate(detail.project.createdAt)}
+                {detail.project.clientName} · {detail.project.contactEmail ?? "no email on file"} · opened {formatDate(detail.project.createdAt)}
                 {detail.project.issuedBy ? ` by ${detail.project.issuedBy}` : ""} · last client access{" "}
                 {formatDate(detail.project.lastAccessAt)}
               </p>

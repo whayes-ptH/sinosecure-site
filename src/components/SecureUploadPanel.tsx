@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ProjectSummary = {
   reference: string;
+  projectName: string;
   organisation: string | null;
   contactName: string | null;
   coverageInterest: string | null;
@@ -239,7 +240,7 @@ export function SecureUploadPanel({
           <p className="eyebrow">Underwriting reference</p>
           <h3>{project.reference}</h3>
           <p className="matter-meta">
-            {project.organisation ?? project.contactName ?? "Submission"}
+            {project.projectName}
             {project.coverageInterest ? ` · ${project.coverageInterest}` : ""} · open until {formatDate(project.expiresAt)}
           </p>
         </div>

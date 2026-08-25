@@ -40,12 +40,15 @@ export type DeskUser = {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "staff";
+  role: "super_admin" | "admin" | "staff";
   mustChangePassword: boolean;
 };
 
 export type ProjectRow = {
   id: number;
+  clientId: number;
+  clientName: string;
+  projectName: string;
   reference: string;
   organisation: string | null;
   contactName: string | null;
@@ -59,6 +62,16 @@ export type ProjectRow = {
   lastAccessAt: string | null;
   proposalSentAt: string | null;
   documentCount: number;
+};
+
+export type ClientRow = {
+  id: number;
+  name: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  status: "active" | "disabled";
+  projectCount: number;
+  createdAt: string;
 };
 
 export type DocumentRow = {
@@ -84,11 +97,17 @@ export type TeamMember = {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "staff";
+  role: "super_admin" | "admin" | "staff";
   status: "active" | "disabled";
   mustChangePassword: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+};
+
+export type NotificationConfiguration = {
+  recipient: string | null;
+  directEmailReady: boolean;
+  formsArchiveEnabled: true;
 };
 
 /** What the console gets back after issuing a code — the email included. */
