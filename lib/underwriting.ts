@@ -144,12 +144,15 @@ export function failure(message: string, status = 400, extra: Record<string, unk
   return json({ ok: false, error: message, ...extra }, status);
 }
 
-/** Constant-time comparison of the console key so the check leaks no timing signal. */
-export function isAdminAuthorised(req: Request): boolean {
+/**
+ * Constant-time comparison of the bootstrap key so the check leaks no timing signal.
+ * This key is no longer a day-to-day credential: it exists only to create the first
+ * administrator account, after which staff sign in with their own email and password.
+ */
+export function matchesAdminKey(supplied: unknown): boolean {
   const expected = process.env.UNDERWRITING_ADMIN_KEY;
   if (!expected || expected.length < 16) return false;
-  const supplied = req.headers.get("x-underwriting-key") ?? "";
-  const a = Buffer.from(createHash("sha256").update(supplied).digest("hex"));
+  const a = Buffer.from(createHash("sha256").update(typeof supplied === "string" ? supplied : "").digest("hex"));
   const b = Buffer.from(createHash("sha256").update(expected).digest("hex"));
   return timingSafeEqual(a, b);
 }

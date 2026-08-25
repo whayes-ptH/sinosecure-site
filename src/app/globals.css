@@ -106,9 +106,9 @@ p { color: var(--muted); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .contact-form label, .secure-card label, .desk label, .desk-gate label { display: grid; gap: 8px; margin-bottom: 20px; color: #233448; font-size: .76rem; font-weight: 700; letter-spacing: .05em; }
 .contact-form input, .contact-form textarea, .contact-form select,
-.secure-card input, .secure-card select, .desk input, .desk select, .desk-gate input { width: 100%; border: 1px solid #cad0d4; border-radius: 0; background: #fbfbf9; color: var(--ink); padding: 13px 14px; outline: none; }
+.secure-card input, .secure-card select, .desk input, .desk select, .desk textarea, .desk-gate input { width: 100%; border: 1px solid #cad0d4; border-radius: 0; background: #fbfbf9; color: var(--ink); padding: 13px 14px; outline: none; }
 .contact-form input:focus, .contact-form textarea:focus, .contact-form select:focus,
-.secure-card input:focus, .secure-card select:focus, .desk input:focus, .desk select:focus, .desk-gate input:focus { border-color: #9b7938; box-shadow: 0 0 0 3px rgba(212,179,111,.2); }
+.secure-card input:focus, .secure-card select:focus, .desk input:focus, .desk select:focus, .desk textarea:focus, .desk-gate input:focus { border-color: #9b7938; box-shadow: 0 0 0 3px rgba(212,179,111,.2); }
 .hidden-field { position: absolute; left: -9999px; }
 .form-note { margin: 15px 0 0; font-size: .7rem; }
 .form-note a { color: #a84521; border-bottom: 1px solid var(--gold); font-weight: 600; transition: .2s ease; }
@@ -156,6 +156,8 @@ p { color: var(--muted); }
 .status-open { border-color: #9b7938; color: #8a6414; }
 .status-in_review { border-color: #2f6f8f; color: #235973; }
 .status-closed { border-color: var(--line); color: var(--muted); }
+.role-admin { border-color: #2f6f8f; color: #235973; }
+.role-staff { border-color: var(--line); color: var(--muted); }
 
 .dropzone { display: grid; justify-items: center; gap: 10px; padding: 40px 24px; border: 1px dashed #b6bfc6; background: #fbfbf9; text-align: center; transition: .2s ease; }
 .dropzone.dragging { border-color: var(--gold); background: #fff5ef; }
@@ -200,6 +202,28 @@ p { color: var(--muted); }
 .desk-table td { padding: 14px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .desk-table small { display: block; color: var(--muted); font-size: .72rem; }
 .desk-detail h3 { margin: 30px 0 14px; font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.desk-form-plain { display: block; margin-top: 26px; }
+.desk-form-plain .button { width: 100%; }
+.desk-notice { max-width: 460px; margin: 0 auto 18px; text-align: center; }
+.link-button { border: 0; background: none; padding: 0; color: #a84521; font: inherit; font-weight: 600; border-bottom: 1px solid var(--gold); cursor: pointer; }
+.link-button:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+/* Console navigation */
+.desk-nav { display: flex; gap: 0; margin-bottom: 30px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.desk-nav button { border: 0; border-bottom: 2px solid transparent; background: none; margin-bottom: -1px; padding: 12px 20px 13px; color: var(--muted); font: inherit; font-size: .76rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; transition: .2s ease; }
+.desk-nav button:hover { color: var(--ink); }
+.desk-nav button.active { color: var(--ink); border-bottom-color: var(--gold); }
+
+/* Proposal composer and its result */
+.desk-form .eyebrow, .proposal-result .eyebrow { margin-bottom: 10px; }
+.form-lead { margin: 0 0 26px; max-width: 620px; font-size: .9rem; }
+.label-hint { color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.form-success { margin: 15px 0 0; color: #2f7a4f; font-size: .8rem; font-weight: 600; }
+.desk textarea { min-height: 96px; font: inherit; resize: vertical; }
+.proposal-result { background: var(--white); border: 1px solid var(--line); padding: 30px; margin-bottom: 30px; }
+.proposal-result pre { max-width: 100%; overflow-x: auto; padding: 18px; background: #fbfbf9; border: 1px solid var(--line); font-size: .78rem; line-height: 1.6; white-space: pre-wrap; }
+.proposal-result .issued-grid { grid-template-columns: 1fr; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .audit-list { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; font-size: .8rem; }
 .audit-list li { display: grid; grid-template-columns: 200px 1fr auto; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .audit-list small { color: var(--muted); font-size: .72rem; }

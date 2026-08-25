@@ -1,4 +1,40 @@
-import { index, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+
+/**
+ * A console account. Staff sign in with an email and password; the password is only
+ * ever held as a scrypt digest with a per-account salt. The first admin is created
+ * once, from the setup screen, using UNDERWRITING_ADMIN_KEY as the bootstrap secret.
+ */
+export const underwritingUsers = pgTable("underwriting_users", {
+  id: serial().primaryKey(),
+  email: text().notNull().unique(),
+  name: text().notNull(),
+  role: text().notNull().default("staff"),
+  passwordHash: text("password_hash").notNull(),
+  passwordSalt: text("password_salt").notNull(),
+  status: text().notNull().default("active"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+});
+
+/** One row per signed-in browser. The cookie carries a token; only its digest is stored. */
+export const underwritingSessions = pgTable(
+  "underwriting_sessions",
+  {
+    id: serial().primaryKey(),
+    tokenHash: text("token_hash").notNull().unique(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => underwritingUsers.id),
+    ipHash: text("ip_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("underwriting_sessions_user_idx").on(table.userId)],
+);
 
 /**
  * An underwriting matter. The `reference` is the non-secret identifier quoted in
@@ -16,6 +52,8 @@ export const underwritingProjects = pgTable("underwriting_projects", {
   matterSummary: text("matter_summary"),
   status: text().notNull().default("open"),
   origin: text().notNull().default("client"),
+  issuedByUserId: integer("issued_by_user_id").references(() => underwritingUsers.id),
+  proposalSentAt: timestamp("proposal_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

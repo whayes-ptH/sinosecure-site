@@ -130,6 +130,9 @@ export async function createProject(input: {
   coverageInterest?: string | null;
   matterSummary?: string | null;
   origin: "client" | "underwriter";
+  /** The console account that issued the code, when a member of staff did. */
+  issuedByUserId?: number | null;
+  proposalSentAt?: Date | null;
   expiresAt: Date;
 }): Promise<{ project: Project; accessCode: string }> {
   let lastError: unknown;
@@ -147,6 +150,8 @@ export async function createProject(input: {
           coverageInterest: input.coverageInterest ?? null,
           matterSummary: input.matterSummary ?? null,
           origin: input.origin,
+          issuedByUserId: input.issuedByUserId ?? null,
+          proposalSentAt: input.proposalSentAt ?? null,
           expiresAt: input.expiresAt,
         })
         .returning();
