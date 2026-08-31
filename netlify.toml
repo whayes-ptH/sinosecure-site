@@ -41,3 +41,35 @@
   to = "https://sinosecure.eu/:splat"
   status = 301
   force = true
+
+# Stale indexed routes from the previous site (Aug 31 audit): consolidate
+# replaced pages with 301s, mark retired locales gone with 410.
+[[redirects]]
+  from = "/services/*"
+  to = "/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/products/*"
+  to = "/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/de/*"
+  to = "/"
+  status = 410
+  force = true
+
+[[redirects]]
+  from = "/fr/*"
+  to = "/"
+  status = 410
+  force = true
+
+[[redirects]]
+  from = "/es/*"
+  to = "/"
+  status = 410
+  force = true
